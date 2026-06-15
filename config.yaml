@@ -1,0 +1,29 @@
+# Target server settings (Docker Compose network service name is 'server')
+target_url: "http://server:8080"
+
+# Simulation parameters
+duration_seconds: 15
+vus_per_client: 3
+think_time_ms: 1000
+
+# Scenario definition: sequence of HTTP requests executed by each virtual user
+scenario:
+  - name: "Access Home Page"
+    method: "GET"
+    path: "/"
+    expect_status: 200
+
+  - name: "Submit Login"
+    method: "POST"
+    path: "/login"
+    body: '{"username": "user_{{VU_ID}}", "password": "password123"}'
+    headers:
+      Content-Type: "application/json"
+    expect_status: 200
+    think_time_ms: 500
+
+  - name: "Get Profile Data"
+    method: "GET"
+    path: "/profile"
+    expect_status: 200
+    think_time_ms: 800

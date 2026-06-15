@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8080:8080"
+    networks:
+      - sim-net
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    depends_on:
+      - server
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./results:/results
+    environment:
+      - TARGET_URL
+    networks:
+      - sim-net
+
+  manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.manager
+    volumes:
+      - ./results:/results
+    profiles:
+      - tools # Prevents it from running by default during 'docker compose up'
+    networks:
+      - sim-net
+
+networks:
+  sim-net:
+    driver: bridge

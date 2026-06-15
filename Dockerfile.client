@@ -1,0 +1,14 @@
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+COPY go.mod ./
+# Download YAML parser dependency
+RUN go get gopkg.in/yaml.v3
+COPY client/ ./client/
+RUN CGO_ENABLED=0 GOOS=linux go build -o /client ./client
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /app
+COPY --from=builder /client /client
+# We will mount config.yaml to /app/config.yaml and volume to /results
+ENTRYPOINT ["/client"]

@@ -1,0 +1,10 @@
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+COPY go.mod ./
+COPY manager/ ./manager/
+RUN CGO_ENABLED=0 GOOS=linux go build -o /manager ./manager
+
+FROM alpine:latest
+COPY --from=builder /manager /manager
+# We will mount volume to /results
+ENTRYPOINT ["/manager"]
