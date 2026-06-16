@@ -7,6 +7,7 @@
 ## 主な特徴
 
 - **IPアドレスの分散シミュレート**: Dockerのブリッジネットワークを利用し、各クライアントコンテナに個別のIPアドレスを割り当てることで、サーバー側からはそれぞれ異なる端末・ロケーションからのアクセスに見えるように再現します。
+- **DNS・NAT実験のシミュレート**: クライアント内部で明示的な DNS AAAA 解決を行い、返答された一時IPアドレスに対して直接TCP接続を行いながらも通常の Host ヘッダーを維持するブラウザ偽装通信を再現。ホストネットワークモード (`network_mode: host`) にも対応しています。
 - **デバイスプロファイルのランダム割当**: `iPhone/Safari`、`Android/Chrome`、`Windows/Chrome`、`Mac/Firefox` などの代表的なデバイスの User-Agent とヘッダーの組み合わせをクライアントのセッションごとにランダムに適用します。
 - **シナリオベースの並行ユーザー**: `config.yaml` で定義したリクエストシーケンス（ホーム画面遷移 ➔ ログイン ➔ プロフィール取得など）を、指定した同時接続数（VU）でループ実行します。
 - **状態（セッション）の維持**: CookieJar を内蔵しているため、ログインステップで返されたセッションCookieなどを後続のリクエストステップへ自動的に引き継ぎます。
@@ -70,8 +71,15 @@ make clean
 
 ## 高度な使い方
 
+### 実験環境（ホストネットワークモード）での実行
+既存のDNS・DNAT実験環境に対してトラフィックを流す場合、クライアントコンテナはホストネットワークモードで動作します。このモードではコンテナスケールアウトをせずに、単一コンテナ内の同時ユーザー数（VU）を調整して負荷をかけます。
+```bash
+# クライアント数を1台に指定して起動
+make run-test CLIENT_COUNT=1
+```
+
 ### クライアント（コンテナ）数を変更する
-実行時の引数として `CLIENT_COUNT` を渡すことで、クライアント数を動的に変更できます（デフォルトは `3` です）。
+実行時の引数として `CLIENT_COUNT` を渡すことで、クライアント数を動的に変更できます（デフォルトは `3` です。※ホストネットワークモードを使用しない通常の負荷テスト時に適用されます）。
 ```bash
 # クライアントコンテナを 5 台にスケールアウトして実行
 make run-test CLIENT_COUNT=5
@@ -88,11 +96,16 @@ TARGET_URL=http://your-target-server:8000 make run-test CLIENT_COUNT=10
 
 ## テストシナリオのカスタマイズ
 
-[config.yaml](file:///home/ogawadaiki/workspace/network-client/config.yaml) を編集することで、リクエスト順序やパラメータを定義できます。
+[config.yaml](file:///home/d-ogaw25/workspaces/network-client-simulator/config.yaml) を編集することで、リクエスト順序やパラメータを定義できます。
 
 ```yaml
-# 対象サーバーのベースURL (検証サーバーを使用する場合は 'http://server:8080')
+# 対象サーバーのベースURL（DNS・ドメイン設定を使用しない場合のフォールバック）
 target_url: "http://server:8080"
+
+# 実験用DNSおよびターゲットドメイン設定（明示的DNS AAAA解決を行う場合）
+dns_server: "192.168.10.53:53"
+target_domain: "www.v6d.dsm.cis.kit.jp"
+target_port: 80
 
 # テストパラメータ
 duration_seconds: 15
