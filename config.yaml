@@ -1,5 +1,10 @@
 # Target server settings (Docker Compose network service name is 'server')
-target_url: "http://server:8080"
+target_url: "http://server:8080" # Fallback if direct DNS resolution is not used
+
+# Experimental DNS and domain configuration
+dns_server: "192.168.10.53:53"
+target_domain: "www.v6d.dsm.cis.kit.jp"
+target_port: 80
 
 # Simulation parameters
 duration_seconds: 15

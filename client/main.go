@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
@@ -20,6 +21,9 @@ import (
 // Config は config.yaml の設定値をマッピングする構造体です。
 type Config struct {
 	TargetURL       string         `yaml:"target_url"`       // 対象サーバーのベースURL
+	DNSServer       string         `yaml:"dns_server"`       // 実験用DNSサーバー (IP:Port)
+	TargetDomain    string         `yaml:"target_domain"`    // ターゲットドメイン名
+	TargetPort      int            `yaml:"target_port"`      // ターゲットポート
 	DurationSeconds int            `yaml:"duration_seconds"` // テスト全体の継続時間（秒）
 	VUsPerClient    int            `yaml:"vus_per_client"`    // コンテナごとの同時起動仮想ユーザー（VU）数
 	ThinkTimeMs     int            `yaml:"think_time_ms"`     // デフォルトのステップ間の待機時間（ミリ秒）
@@ -152,9 +156,79 @@ func runVirtualUser(ctx context.Context, vuID string, config Config, resultsChan
 
 	// クッキー維持（ログイン後のセッション維持）用の CookieJar を備えた HTTP クライアントを作成
 	jar, _ := cookiejar.New(nil)
-	httpClient := &http.Client{
-		Jar:     jar,
-		Timeout: 10 * time.Second, // 接続タイムアウト
+	var httpClient *http.Client
+
+	if config.DNSServer != "" && config.TargetDomain != "" {
+		// 実験用の明示的DNS解決クライアントを作成
+		dnsPort := config.DNSServer
+		if !strings.Contains(dnsPort, ":") {
+			dnsPort = dnsPort + ":53"
+		}
+
+		resolver := &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{
+					Timeout: 2 * time.Second,
+				}
+				return d.DialContext(ctx, "udp", dnsPort)
+			},
+		}
+
+		dialer := &net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 0,
+		}
+
+		transport := &http.Transport{
+			DisableKeepAlives: true, // リクエストごとの新規DNS解決を強制
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					host = addr
+					port = fmt.Sprintf("%d", config.TargetPort)
+				}
+
+				// DNS AAAA クエリを実行
+				ips, err := resolver.LookupIP(ctx, "ip6", host)
+				if err != nil || len(ips) == 0 {
+					log.Printf("[%s] AAAA lookup failed for %s, trying IPv4: %v", vuID, host, err)
+					ips, err = resolver.LookupIP(ctx, "ip4", host)
+					if err != nil || len(ips) == 0 {
+						return nil, fmt.Errorf("DNS lookup failed for %s: %v", host, err)
+					}
+				}
+
+				destIP := ips[0].String()
+				destAddr := net.JoinHostPort(destIP, port)
+
+				netType := "tcp6"
+				if ips[0].To4() != nil {
+					netType = "tcp"
+				}
+
+				return dialer.DialContext(ctx, netType, destAddr)
+			},
+		}
+
+		httpClient = &http.Client{
+			Jar:       jar,
+			Timeout:   10 * time.Second,
+			Transport: transport,
+		}
+
+		// 動的DNS解決のため、TargetURLを書き換えてドメイン宛てにアクセスする
+		scheme := "http"
+		if config.TargetPort == 443 {
+			scheme = "https"
+		}
+		config.TargetURL = fmt.Sprintf("%s://%s:%d", scheme, config.TargetDomain, config.TargetPort)
+	} else {
+		// 従来のフォールバッククライアント
+		httpClient = &http.Client{
+			Jar:     jar,
+			Timeout: 10 * time.Second,
+		}
 	}
 
 	// タイムアウト時間までシナリオをループ実行
