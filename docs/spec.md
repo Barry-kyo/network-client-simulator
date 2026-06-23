@@ -5,7 +5,7 @@
 ## システム構成・ディレクトリ構造
 
 ```text
-/home/ogawadaiki/workspace/network-client/
+/home/d-ogaw25/workspaces/network-client-simulator/
 ├── config.yaml          # テストシナリオやターゲットの設定
 ├── docker-compose.yml   # クライアントコンテナおよび検証サーバーの定義
 ├── Makefile             # ビルド・実行・集計の統合コマンド
@@ -30,6 +30,7 @@
   * `dns_server`: 実験用DNSサーバーのIPとポート番号 (例: `192.168.10.53:53`)
   * `target_domain`: ターゲットWebサーバーのドメイン名 (例: `www.v6d.dsm.cis.kit.jp`)
   * `target_port`: ターゲットWebサーバーの待受ポート (例: `80`)
+  * `device_profile`: プロセス全体で一貫して固定するデバイスプロファイル名 (任意)
   * `duration_seconds`: テスト全体の継続時間（秒）
   * `vus_per_client`: クライアントコンテナあたりの同時仮想ユーザー数 (VU)
   * `think_time_ms`: デフォルトのステップ間の思考時間（ミリ秒）
@@ -37,12 +38,12 @@
 
 ### 2. クライアントシミュレータ (`client/`)
 * **デバイスプロファイル (`device.go`)**:
-  * iPhone, Android, Windows, Mac などの代表的なデバイスの User-Agent とヘッダーの組み合わせ（プロファイル）を複数定義し、仮想ユーザー生成時にランダムに割り当てます。
+  * iPhone, Android, Windows, Mac などの代表的なデバイスの User-Agent とヘッダーの組み合わせ（プロファイル）を定義。プロセス（コンテナ全体）の開始時に1つ選ばれて固定され、全VUに一貫して適用されます（`config.yaml` で直接指定することも可能）。
 * **シミュレータ本体 (`main.go`)**:
   * `config.yaml` を読み込み、指定された `vus_per_client` 分のゴルーチンを起動します。
   * 各ゴルーチンは独立した HTTP クライアント（Cookie Jarを保持し、セッションを維持）として、シナリオに沿ってリクエストを繰り返し送信します。
   * **明示的DNS・ブラウザ偽装機能**: `dns_server` と `target_domain` が指定された場合、標準のDNS解決に依存せず、プログラム内部で直接DNS AAAA解決を実行して一時IPv6を取得。そのIP宛てにTCP接続を張りますが、HTTPの `Host` ヘッダーは元のドメイン名に維持し、かつ `DisableKeepAlives: true` によって接続ごとのDNS解決を強制します。
-  * 各リクエストの実行結果（開始時刻、レイテンシ、ステータスコード、エラー内容など）をメモリに記録し、終了時に `/results/client-<hostname>.json` という共有ボリューム上のファイルに保存します。
+  * 各リクエストの実行結果（開始時刻、レイテンシ、ステータスコード、エラー内容、使用された `user_agent` 文字列）およびコンテナ全体の `device_profile` メタデータを記録し、終了時に `/results/client-<hostname>.json` という共有ボリューム上のファイルに保存します。
 
 ### 3. マネージャーツール (`manager/`)
 * テスト終了後、共有ディレクトリ内の全JSONファイルを読み込みます。
@@ -59,7 +60,7 @@
 ### 5. 実行環境の定義と環境変数によるカスタマイズ
 * **Docker Compose (`docker-compose.yml`)**:
   * `server`: 検証用モックサーバーのコンテナ（※ローカル検証用。ホストネットワークモード稼働時は無効）
-  * `client`: クライアントシミュレータのコンテナ。ホストネットワークモード (`network_mode: host`) に設定されており、ホストマシンのネットワークインターフェースを通じて、すでに構築済みの外部実験インフラ（DNS、NAT、Web）と直接通信します。
+  * `client`: クライアントシミュレータのコンテナ。通常の Docker ブリッジネットワークに所属し、`--scale client=N` による複数コンテナのスケールアウトに対応。外部サーバー宛ての実験時は、ホストPCのIPによるマスカレード（NAT）経由の通信になります。
   * `results-volume`: クライアントの結果ファイルを manager と共有するためのバインドマウント
 * **`Makefile`**:
   * `make build`: Goバイナリのビルド
