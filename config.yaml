@@ -1,14 +1,18 @@
 # Target server settings (Docker Compose network service name is 'server')
-target_url: "http://server:8080" # Fallback if direct DNS resolution is not used
+target_url: "https://www.test.local" # Fallback if direct DNS resolution is not used
 
 # Experimental DNS and domain configuration
-dns_server: "192.168.10.53:53"
-target_domain: "www.v6d.dsm.cis.kit.jp"
-target_port: 80
+dns_server: "[2001:2f8:31:f145::53]:53"
+target_domain: "www.test.local"
+target_port: 443
+
+# Device profile setting (Optional. If omitted, one will be selected randomly at start and kept consistent for the process)
+# Available profiles: "iPhone / Safari", "Android / Chrome", "Windows / Chrome", "Mac / Firefox"
+device_profile: ""
 
 # Simulation parameters
 duration_seconds: 15
-vus_per_client: 3
+vus_per_client: 10
 think_time_ms: 1000
 
 # Scenario definition: sequence of HTTP requests executed by each virtual user

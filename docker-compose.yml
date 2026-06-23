@@ -14,12 +14,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.client
-    network_mode: "host"
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./results:/results
     environment:
       - TARGET_URL
+    networks:
+      - sim-net
 
   manager:
     build:

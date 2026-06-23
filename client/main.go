@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ type Config struct {
 	DNSServer       string         `yaml:"dns_server"`       // 実験用DNSサーバー (IP:Port)
 	TargetDomain    string         `yaml:"target_domain"`    // ターゲットドメイン名
 	TargetPort      int            `yaml:"target_port"`      // ターゲットポート
+	DeviceProfile   string         `yaml:"device_profile"`   // 固定するデバイスプロファイル名
 	DurationSeconds int            `yaml:"duration_seconds"` // テスト全体の継続時間（秒）
 	VUsPerClient    int            `yaml:"vus_per_client"`    // コンテナごとの同時起動仮想ユーザー（VU）数
 	ThinkTimeMs     int            `yaml:"think_time_ms"`     // デフォルトのステップ間の待機時間（ミリ秒）
@@ -48,6 +50,7 @@ type RequestLog struct {
 	StepName   string    `json:"step_name"`        // 実行ステップ名
 	Method     string    `json:"method"`           // HTTPメソッド
 	URL        string    `json:"url"`              // リクエストURL
+	UserAgent  string    `json:"user_agent"`       // 使用したUser-Agent (追加)
 	StatusCode int       `json:"status_code"`      // レスポンスのHTTPステータスコード
 	LatencyMs  int64     `json:"latency_ms"`       // レイテンシ（ミリ秒）
 	Success    bool      `json:"success"`          // リクエストの成否（ステータスコードおよびエラー有無で判定）
@@ -56,8 +59,9 @@ type RequestLog struct {
 
 // ClientResults は、1つのクライアントコンテナの全結果をまとめる構造体です。
 type ClientResults struct {
-	Hostname string       `json:"hostname"` // クライアントのホスト名
-	Logs     []RequestLog `json:"logs"`     // 全実行ログの配列
+	Hostname      string        `json:"hostname"`       // クライアントのホスト名
+	DeviceProfile DeviceProfile `json:"device_profile"` // プロセス全体で使用したデバイスプロファイル (追加)
+	Logs          []RequestLog  `json:"logs"`           // 全実行ログの配列
 }
 
 func main() {
@@ -98,11 +102,31 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(config.DurationSeconds)*time.Second)
 	defer cancel()
 
+	// プロセス全体で一貫したデバイスプロファイルを選択
+	var processProfile DeviceProfile
+	if config.DeviceProfile != "" {
+		found := false
+		for _, p := range DeviceProfiles {
+			if p.Name == config.DeviceProfile {
+				processProfile = p
+				found = true
+				break
+			}
+		}
+		if !found {
+			log.Printf("[%s] Device profile '%s' not found, selecting randomly", hostname, config.DeviceProfile)
+			processProfile = GetRandomDeviceProfile()
+		}
+	} else {
+		processProfile = GetRandomDeviceProfile()
+	}
+	log.Printf("[%s] Selected device profile for this process: %s (UA: %s)", hostname, processProfile.Name, processProfile.UserAgent)
+
 	// VUsPerClient で指定された数の Goroutine (仮想ユーザー) を起動
 	for i := 1; i <= config.VUsPerClient; i++ {
 		vuID := fmt.Sprintf("%s-vu-%d", hostname, i)
 		wg.Add(1)
-		go runVirtualUser(ctx, vuID, config, resultsChan, &wg)
+		go runVirtualUser(ctx, vuID, config, processProfile, resultsChan, &wg)
 	}
 
 	// ログ収集用 Goroutine
@@ -121,8 +145,9 @@ func main() {
 
 	// 収集したログデータをシリアライズして共有ディレクトリに保存
 	results := ClientResults{
-		Hostname: hostname,
-		Logs:     logs,
+		Hostname:      hostname,
+		DeviceProfile: processProfile,
+		Logs:          logs,
 	}
 
 	err = os.MkdirAll("/results", 0755)
@@ -147,11 +172,9 @@ func main() {
 }
 
 // runVirtualUser は1人の仮想ユーザーの振る舞いをシミュレートする Goroutine です。
-func runVirtualUser(ctx context.Context, vuID string, config Config, resultsChan chan<- RequestLog, wg *sync.WaitGroup) {
+func runVirtualUser(ctx context.Context, vuID string, config Config, profile DeviceProfile, resultsChan chan<- RequestLog, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	// デバイス情報のランダム割り当て（異なる端末からのアクセスを偽装）
-	profile := GetRandomDeviceProfile()
 	log.Printf("[%s] Running as %s (UA: %s)", vuID, profile.Name, profile.UserAgent)
 
 	// クッキー維持（ログイン後のセッション維持）用の CookieJar を備えた HTTP クライアントを作成
@@ -161,7 +184,14 @@ func runVirtualUser(ctx context.Context, vuID string, config Config, resultsChan
 	if config.DNSServer != "" && config.TargetDomain != "" {
 		// 実験用の明示的DNS解決クライアントを作成
 		dnsPort := config.DNSServer
-		if !strings.Contains(dnsPort, ":") {
+		if strings.Count(dnsPort, ":") > 1 && !strings.HasPrefix(dnsPort, "[") {
+			// IPv6アドレスで角括弧がない場合 (例: "2400:4109:100:500::53") -> "[2400:4109:100:500::53]:53"
+			dnsPort = "[" + dnsPort + "]:53"
+		} else if strings.HasPrefix(dnsPort, "[") && strings.HasSuffix(dnsPort, "]") {
+			// 角括弧はあるがポートがない場合 (例: "[2400:4109:100:500::53]") -> "[2400:4109:100:500::53]:53"
+			dnsPort = dnsPort + ":53"
+		} else if !strings.Contains(dnsPort, ":") {
+			// IPv4アドレスでポートがない場合 (例: "192.168.10.53") -> "192.168.10.53:53"
 			dnsPort = dnsPort + ":53"
 		}
 
@@ -182,6 +212,9 @@ func runVirtualUser(ctx context.Context, vuID string, config Config, resultsChan
 
 		transport := &http.Transport{
 			DisableKeepAlives: true, // リクエストごとの新規DNS解決を強制
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				host, port, err := net.SplitHostPort(addr)
 				if err != nil {
@@ -222,12 +255,17 @@ func runVirtualUser(ctx context.Context, vuID string, config Config, resultsChan
 		if config.TargetPort == 443 {
 			scheme = "https"
 		}
-		config.TargetURL = fmt.Sprintf("%s://%s:%d", scheme, config.TargetDomain, config.TargetPort)
+		config.TargetURL = fmt.Sprintf("%s://%s", scheme, config.TargetDomain)
 	} else {
 		// 従来のフォールバッククライアント
 		httpClient = &http.Client{
 			Jar:     jar,
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
 		}
 	}
 
@@ -272,6 +310,7 @@ func executeStep(ctx context.Context, vuID string, client *http.Client, profile 
 			StepName:  step.Name,
 			Method:    step.Method,
 			URL:       url,
+			UserAgent: profile.UserAgent,
 			Success:   false,
 			Error:     fmt.Sprintf("failed to create request: %v", err),
 		}
@@ -300,6 +339,7 @@ func executeStep(ctx context.Context, vuID string, client *http.Client, profile 
 		StepName:  step.Name,
 		Method:    step.Method,
 		URL:       url,
+		UserAgent: profile.UserAgent,
 		LatencyMs: latency,
 	}
 
