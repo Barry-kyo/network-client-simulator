@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   server:
     build:
@@ -36,3 +34,8 @@ services:
 networks:
   sim-net:
     driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+        - subnet: fd00:1234:5678::/64

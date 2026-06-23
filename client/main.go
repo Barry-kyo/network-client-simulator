@@ -201,7 +201,11 @@ func runVirtualUser(ctx context.Context, vuID string, config Config, profile Dev
 				d := net.Dialer{
 					Timeout: 2 * time.Second,
 				}
-				return d.DialContext(ctx, "udp", dnsPort)
+				netType := network
+				if strings.Contains(dnsPort, "[") && !strings.HasSuffix(netType, "6") {
+					netType = netType + "6"
+				}
+				return d.DialContext(ctx, netType, dnsPort)
 			},
 		}
 

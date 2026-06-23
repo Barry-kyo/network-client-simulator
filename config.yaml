@@ -2,7 +2,7 @@
 target_url: "https://www.test.local" # Fallback if direct DNS resolution is not used
 
 # Experimental DNS and domain configuration
-dns_server: "[2001:2f8:31:f145::53]:53"
+dns_server: "192.168.128.53:53"
 target_domain: "www.test.local"
 target_port: 443
 
