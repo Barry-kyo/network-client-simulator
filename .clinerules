@@ -5,3 +5,8 @@
   すべてのソースコードのファイル、データ構造（struct）、関数、変数、および主要な制御ロジックに対して、役割や動作が明確に理解できるように詳細なコメント（基本は日本語）を必ず追加してください。
 - New code blocks or files created in this workspace must always be commented.
 - When refactoring or modifying files, preserve existing comments and add new comments describing the changes.
+
+## Documentation and Commit Rule
+- **変更確定後のドキュメント更新とコミットの徹底**:
+  ソースコードや設定に変更を加え、その修正が確定（動作確認等の完了）した後は、必ず関連するドキュメント（`README.md` や `docs/spec.md` など）を最新の構成を反映するように更新してください。また、修正内容とドキュメントの更新内容を速やかに Git にコミット（`git commit`）し、変更履歴を完全に保存・復元できるようにしてください。
+
