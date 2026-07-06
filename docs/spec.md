@@ -38,7 +38,7 @@
 
 ### 2. クライアントシミュレータ (`client/`)
 * **デバイスプロファイル (`device.go`)**:
-  * iPhone, Android, Windows, Mac などの代表的なデバイスの User-Agent とヘッダーの組み合わせ（プロファイル）を定義。プロセス（コンテナ全体）の開始時に1つ選ばれて固定され、全VUに一貫して適用されます（`config.yaml` で直接指定することも可能）。
+  * iPhone, iPad, Android, Windows, Mac, Linux などの OS と各ブラウザ（Safari, Chrome, Firefox, Edge）を組み合わせた 12 種類の代表的なデバイスの User-Agent とヘッダーの組み合わせ（プロファイル）を定義。プロセス（コンテナ全体）の開始時に1つ選ばれて固定され、全VUに一貫して適用されます（`config.yaml` で直接指定することも可能）。
 * **シミュレータ本体 (`main.go`)**:
   * `config.yaml` を読み込み、指定された `vus_per_client` 分のゴルーチンを起動します。
   * 各ゴルーチンは独立した HTTP クライアント（Cookie Jarを保持し、セッションを維持）として、シナリオに沿ってリクエストを繰り返し送信します。

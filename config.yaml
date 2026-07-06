@@ -7,7 +7,7 @@ target_domain: "www.test.local"
 target_port: 443
 
 # Device profile setting (Optional. If omitted, one will be selected randomly at start and kept consistent for the process)
-# Available profiles: "iPhone / Safari", "Android / Chrome", "Windows / Chrome", "Mac / Firefox"
+# Available profiles: "iPhone / Safari", "iPad / Safari", "Mac / Safari", "Mac / Chrome", "Mac / Firefox", "Android / Chrome", "Android / Firefox", "Windows / Chrome", "Windows / Edge", "Windows / Firefox", "Linux / Chrome", "Linux / Firefox"
 device_profile: ""
 
 # Simulation parameters

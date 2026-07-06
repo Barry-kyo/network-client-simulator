@@ -122,7 +122,7 @@ target_domain: "www.v6d.dsm.cis.kit.jp"
 target_port: 80
 
 # デバイスプロファイルの一貫化設定（任意。省略時は起動時にランダムで1つ決定され固定されます）
-# "iPhone / Safari", "Android / Chrome", "Windows / Chrome", "Mac / Firefox"
+# 選択肢: "iPhone / Safari", "iPad / Safari", "Mac / Safari", "Mac / Chrome", "Mac / Firefox", "Android / Chrome", "Android / Firefox", "Windows / Chrome", "Windows / Edge", "Windows / Firefox", "Linux / Chrome", "Linux / Firefox"
 device_profile: ""
 
 # テストパラメータ
