@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -175,6 +176,14 @@ func main() {
 func runVirtualUser(ctx context.Context, vuID string, config Config, profile DeviceProfile, resultsChan chan<- RequestLog, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	// 起動時のランダムディレイ（一斉接続を防ぎ負荷を分散する）
+	startupDelay := time.Duration(rand.Intn(2000)) * time.Millisecond
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(startupDelay):
+	}
+
 	log.Printf("[%s] Running as %s (UA: %s)", vuID, profile.Name, profile.UserAgent)
 
 	// クッキー維持（ログイン後のセッション維持）用の CookieJar を備えた HTTP クライアントを作成
@@ -226,11 +235,11 @@ func runVirtualUser(ctx context.Context, vuID string, config Config, profile Dev
 					port = fmt.Sprintf("%d", config.TargetPort)
 				}
 
-				// DNS AAAA クエリを実行
-				ips, err := resolver.LookupIP(ctx, "ip6", host)
+				// DNS AAAA クエリをリトライ付きで実行
+				ips, err := resolveIPWithRetry(ctx, resolver, "ip6", host, 3)
 				if err != nil || len(ips) == 0 {
-					log.Printf("[%s] AAAA lookup failed for %s, trying IPv4: %v", vuID, host, err)
-					ips, err = resolver.LookupIP(ctx, "ip4", host)
+					log.Printf("[%s] AAAA lookup failed for %s (retrying with IPv4): %v", vuID, host, err)
+					ips, err = resolveIPWithRetry(ctx, resolver, "ip4", host, 3)
 					if err != nil || len(ips) == 0 {
 						return nil, fmt.Errorf("DNS lookup failed for %s: %v", host, err)
 					}
@@ -385,4 +394,39 @@ func executeStep(ctx context.Context, vuID string, client *http.Client, profile 
 		case <-time.After(time.Duration(thinkTime) * time.Millisecond):
 		}
 	}
+}
+
+// resolveIPWithRetry は、DNS 解決を指数バックオフを伴うリトライ付きで実行します。
+func resolveIPWithRetry(ctx context.Context, resolver *net.Resolver, network, host string, maxRetries int) ([]net.IP, error) {
+	var ips []net.IP
+	var err error
+
+	backoff := 50 * time.Millisecond
+	for i := 0; i < maxRetries; i++ {
+		ips, err = resolver.LookupIP(ctx, network, host)
+		if err == nil && len(ips) > 0 {
+			return ips, nil
+		}
+
+		// タイムアウトやキャンセルの場合は即座に終了
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		// リトライ待ち合わせ（バックオフに少しランダム性を加える）
+		sleepTime := backoff + time.Duration(rand.Intn(50))*time.Millisecond
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(sleepTime):
+		}
+		backoff *= 2 // 指数バックオフ
+		if backoff > 1*time.Second {
+			backoff = 1 * time.Second
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("no IP addresses found")
 }
